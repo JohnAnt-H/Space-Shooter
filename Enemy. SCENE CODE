@@ -1,0 +1,88 @@
+ENEMY
+
+class_name Enemy
+extends Node2D
+
+@onready var stats_component: = $StatsComponent as StatsComponent
+@onready var move_component: = $MoveComponent as MoveComponent
+@onready var visible_on_screen_notifier_2d: VisibleOnScreenNotifier2D = $VisibleOnScreenNotifier2D
+@onready var scale_component: = $ScaleComponent as ScaleComponent
+@onready var flash_component: = $FlashComponent as FlashComponent
+@onready var shake_component: = $ShakeComponent as ShakeComponent
+@onready var hurtbox_component: = $HurtboxComponent as HurtboxComponent
+@onready var hitbox_component: = $HitboxComponent as HitboxComponent
+@onready var destroyed_component: = $DestroyedComponent as DestroyedComponent
+@onready var score_component: = $ScoreComponent as ScoreComponent
+@onready var variable_pitch_audio_stream_player: = $VariablePitchAudioStreamPlayer as VariablePitchAudioStreamPlayer
+
+func _ready() -> void:
+	stats_component.no_health.connect(func():
+		score_component.adjust_score()
+	)
+	
+	visible_on_screen_notifier_2d.screen_exited.connect(queue_free)
+	hurtbox_component.hurt.connect(func(hitbox: HitboxComponent):
+		scale_component.tween_scale()
+		flash_component.flash()
+		shake_component.tween_shake()
+		variable_pitch_audio_stream_player.play_with_variance()
+	)
+	stats_component.no_health.connect(queue_free)
+	hitbox_component.hit_hurtbox.connect(destroyed_component.destroy.unbind(1))
+
+-----------------------------------------------------------------------------------------------------------
+SHAKE COMPONENT
+
+# Give the component a class name so it can be instanced as a custom node
+class_name ShakeComponent
+extends Node
+
+# You should shake the sprite and not the root node or you'll get unexpected behavior
+# since we are manipulating the position of the node and moving it to 0,0
+
+# Export the node that this component will be shaking
+@export var node: Node2D
+
+# Export the shake amount
+@export var shake_amount: = 2.0
+
+# Export the shake duration
+@export var shake_duration: = 0.4
+
+# Store the current amount we are shaking the node (this value will decrease over time)
+var shake = 0
+
+# This is the function that activates this component
+func tween_shake():
+	# Set the shake to the shake amount (shake is the value used in the process function to
+	# shake the node)
+	shake = shake_amount
+	
+	# Create a tween
+	var tween = create_tween()
+	
+	# Tween the shake value from current down to 0 over the shake duration
+	tween.tween_property(self, "shake", 0.0, shake_duration).from_current()
+
+func _physics_process(delta: float) -> void:
+	# Manipulate the position of the node by the shake amount every physics frame
+	# Use randf_range to pick a random x and y value using the shake value
+	node.position = Vector2(randf_range(-shake, shake), randf_range(-shake, shake))
+-----------------------------------------------------------------------------------------------------------
+SCORE COMPONENT
+
+# Give the component a class name so it can be instanced as a custom node
+class_name ScoreComponent
+extends Node
+
+# Export the game stats so we can manipulate the game score
+@export var game_stats: GameStats
+
+# Export the amount the score should be adjusted
+@export var adjust_amount = 5
+
+# This is the function that we call to activate this component. By default it will
+# Use the adjust_amount when called but we could optionally pass in a different amount.
+func adjust_score(amount: int = adjust_amount):
+	game_stats.score += amount
+
