@@ -1,5 +1,6 @@
 # Space-Shooter
 Video Game For Software Engineering
+-UPDATE, project is basically fully fleshed out, license.text is from HeartBeast 
 
 
 ALRIGHTY! ALL IMPORTANT INFO FOR THE CONTRIBUTORS IS HERE
