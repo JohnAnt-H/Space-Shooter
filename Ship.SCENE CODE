@@ -1,0 +1,272 @@
+extends Node2D
+
+@onready var left_muzzle: Marker2D = $LeftMuzzle
+@onready var right_muzzle: Marker2D = $RightMuzzle
+@onready var spawner_component: SpawnerComponent = $SpawnerComponent as SpawnerComponent
+@onready var fire_rate_timer: Timer = $FireRateTimer
+@onready var scale_component: ScaleComponent = $ScaleComponent as ScaleComponent
+@onready var animated_sprite_2d: AnimatedSprite2D = $Anchor/AnimatedSprite2D
+@onready var move_component: MoveComponent = $MoveComponent as MoveComponent
+@onready var flame_animated_sprite: AnimatedSprite2D = %FlameAnimatedSprite
+
+
+func _ready() -> void:
+	fire_rate_timer.timeout.connect(fire_lasers)
+	pass # Replace with function body.
+
+func fire_lasers() -> void: 
+	spawner_component.spawn(left_muzzle.global_position)
+	spawner_component.spawn(right_muzzle.global_position)
+	scale_component.tween_scale()
+
+func _process(delta: float) -> void:
+	animate_the_ship()
+	
+func animate_the_ship() -> void:
+	if move_component.velocity.x < 0:
+		animated_sprite_2d.play("bank_left")
+		flame_animated_sprite.play("bank_left")
+	elif move_component.velocity.x > 0:
+		animated_sprite_2d.play("bank_right")
+		flame_animated_sprite.play("bank_right")
+	else:
+		animated_sprite_2d.play("center")
+		flame_animated_sprite.play("center")
+------------------------------------------------------------------------------------------------------------------
+STATS
+
+# Give the component a class name so it can be instanced as a custom node
+class_name StatsComponent
+extends Node
+
+# Create the health variable and connect a setter
+@export var health: int = 1:
+	set(value):
+		health = value
+		
+		# Signal out that the health has changed
+		health_changed.emit()
+		
+		# Signal out when health is at 0
+		if health == 0: no_health.emit()
+
+# Create our signals for health
+signal health_changed() # Emit when the health value has changed
+signal no_health() # Emit when there is no health left
+------------------------------------------------------------------------------------------------------------------
+MOVE COMPONENT
+
+class_name MoveComponent
+extends Node
+
+@export var actor: Node2D
+@export var velocity: Vector2
+
+func _process(delta: float) -> void:
+	actor.translate(velocity * delta)
+------------------------------------------------------------------------------------------------------------------
+MOVE INPUT COMPONENT
+
+class_name MoveInputComponent
+extends Node
+
+@export var move_stats: MoveStats
+@export var move_component: MoveComponent
+
+func _input(event: InputEvent) -> void:
+	var input_axis = Input.get_axis("ui_left", "ui_right")
+	move_component.velocity = Vector2(input_axis * move_stats.speed, 0)
+------------------------------------------------------------------------------------------------------------------
+POSITION COMPONENT
+
+# Give the component a class name so it can be instanced as a custom node
+class_name PositionClampComponent
+extends Node2D
+
+# Export the actor who's position will be clamped
+@export var actor: Node2D
+
+# Export a margin for left and right (margin.x) and top and bottom (margin.y)
+@export var margin: = 8
+
+# Define the left and right borders to bounce on
+var left_border = 0
+# Use the display viewport width to get the right border of the screen
+var right_border = ProjectSettings.get_setting("display/window/size/viewport_width")
+
+func _process(delta: float) -> void:
+	# clamp the x position of the actor between the left border and the right border (accounting for the margin)
+	actor.global_position.x = clamp(actor.global_position.x, left_border+margin, right_border-margin)
+------------------------------------------------------------------------------------------------------------------
+SPAWNER COMPONENT
+
+# Give the component a class name so it can be instanced as a custom node
+class_name SpawnerComponent
+extends Node2D
+
+# Export the dependencies for this component
+# The scene we want to spawn
+@export var scene: PackedScene
+
+# Spawn an instance of the scene at a specific global position on a parent
+# By default the parent is the current "main" scene , but you can pass in
+# an alternative parent if you so choose.
+func spawn(global_spawn_position: Vector2 = global_position, parent: Node = get_tree().current_scene) -> Node:
+	assert(scene is PackedScene, "Error: The scene export was never set on this spawner component.")
+	# Instance the scene
+	var instance = scene.instantiate()
+	# Add it as a child of the parent
+	parent.add_child(instance)
+	# Update the global position of the instance.
+	# (This must be done after adding it as a child)
+	instance.global_position = global_spawn_position
+	# Return the instance in case we want to perform any other operations
+	# on it after instancing it.
+	return instance
+------------------------------------------------------------------------------------------------------------------
+SCALE COMPONENT
+
+# Give the component a class name so it can be instanced as a custom node
+class_name ScaleComponent
+extends Node
+
+# Export the sprite that this component will be scaling
+@export var sprite: Node2D
+
+# Export the scale amount (as a vector)
+@export var scale_amount = Vector2(1.5, 1.5)
+
+# Export the scale duration
+@export var scale_duration: = 0.4
+
+# This is the function that will activate this component
+func tween_scale() -> void:
+	# We are going to scale the sprite using a tween (so we can make is smooth)
+	# First we create the tween and set it's transition type and easing type
+	var tween = create_tween().set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+	
+	# Next we scale the sprite from its current scale to the scale amount (in 1/10th of the scale duration)
+	tween.tween_property(sprite, "scale", scale_amount, scale_duration * 0.1).from_current()
+	# Finally we scale back to a value of 1 for the other 9/10ths of the scale duration
+	# Consider that we always scale back to a value of 1, you could store the starting scale amount for the sprite
+	# as well for games where your character doesn't start with a scale of 1
+	tween.tween_property(sprite, "scale", Vector2.ONE, scale_duration * 0.9).from(scale_amount)
+------------------------------------------------------------------------------------------------------------------
+HURTBOX COMPONENT
+
+# Give the component a class name so it can be instanced as a custom node
+class_name HurtboxComponent
+extends Area2D
+
+# Create the is_invincible boolean
+var is_invincible = false :
+	# Here we create an inline setter so we can disable and enable collision shapes on
+	# the hurtbox when is_invincible is changed.
+	set(value):
+		is_invincible = value
+		# Disable any collisions shapes on this hurtbox when it is invincible
+		# And reenable them when it isn't invincible
+		for child in get_children():
+			if not child is CollisionShape2D and not child is CollisionPolygon2D: continue
+			# Use call deferred to make sure this doesn't happen in the middle of the
+			# physics process
+			child.set_deferred("disabled", is_invincible)
+
+# Create a signal for when this hurtbox is hit by a hitbox
+signal hurt(hitbox)
+------------------------------------------------------------------------------------------------------------------
+HURT COMPONENT
+
+# Give the component a class name so it can be instanced as a custom node
+class_name HurtComponent
+extends Node
+
+# Grab the stats so we can alter the health
+@export var stats_component: StatsComponent
+
+# Grab a hurtbox so we know when we have taken a hiet
+@export var hurtbox_component: HurtboxComponent
+
+func _ready() -> void:
+	# Connect the hurt signal on the hurtbox component to an anonymous function
+	# that removes health equal to the damage from the hitbox
+	hurtbox_component.hurt.connect(func(hitbox_component: HitboxComponent):
+		stats_component.health -= hitbox_component.damage
+	)
+------------------------------------------------------------------------------------------------------------------
+EXPLOSION SPAWNER COMPONENT
+
+# Give the component a class name so it can be instanced as a custom node
+class_name SpawnerComponent
+extends Node2D
+
+# Export the dependencies for this component
+# The scene we want to spawn
+@export var scene: PackedScene
+
+# Spawn an instance of the scene at a specific global position on a parent
+# By default the parent is the current "main" scene , but you can pass in
+# an alternative parent if you so choose.
+func spawn(global_spawn_position: Vector2 = global_position, parent: Node = get_tree().current_scene) -> Node:
+	assert(scene is PackedScene, "Error: The scene export was never set on this spawner component.")
+	# Instance the scene
+	var instance = scene.instantiate()
+	# Add it as a child of the parent
+	parent.add_child(instance)
+	# Update the global position of the instance.
+	# (This must be done after adding it as a child)
+	instance.global_position = global_spawn_position
+	# Return the instance in case we want to perform any other operations
+	# on it after instancing it.
+	return instance
+------------------------------------------------------------------------------------------------------------------
+DESTROYED COMPONENT
+
+# Give the component a class name so it can be instanced as a custom node
+class_name DestroyedComponent
+extends Node
+
+# Export the actor this component will operate on
+@export var actor: Node2D
+
+# Grab access to the stats so we can tell when the health has reached zero
+@export var stats_component: StatsComponent
+
+# Export and grab access to a spawner component so we can create an effect on death
+@export var destroy_effect_spawner_component: SpawnerComponent
+
+func _ready() -> void:
+	# Connect the the no health signal on our stats to the destroy function
+	stats_component.no_health.connect(destroy)
+
+func destroy() -> void:
+	# create an effect (from the spawner component) and free the actor
+	destroy_effect_spawner_component.spawn(actor.global_position)
+	actor.queue_free()
+------------------------------------------------------------------------------------------------------------------
+VARIABLE PITCH AUDIO
+
+# Give the component a class name so it can be instanced as a custom node
+class_name VariablePitchAudioStreamPlayer
+extends AudioStreamPlayer
+
+# This custom node is used to easily play a sound with a variable pitch
+
+# Export the minimum and maximum pitch amounts
+@export var pitch_min = 0.6
+@export var pitch_max = 1.2
+
+# Allow the node to automatically play the sound with the pitch variance
+@export var auto_play_with_variance: = false
+
+func _ready() -> void:
+	# If auto play with variance is on, call the function to play the sound in the ready function
+	if auto_play_with_variance:
+		play_with_variance(0.0)
+
+# This is the function for playing the sound using a variance in the pitch
+func play_with_variance(from_position: float = 0.0) -> void:
+	# Set the pitch scale before playing the sound (picking a random amount between the minimum and maximum)
+	pitch_scale = randf_range(pitch_min, pitch_max)
+	play(from_position)
+------------------------------------------------------------------------------------------------------------------
